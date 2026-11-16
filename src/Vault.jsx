@@ -1,66 +1,61 @@
-import { useEffect, useState } from "react";
-import { get, set } from "idb-keyval";
+import { useEffect, useState } from 'react'
+import { addMedia, getAllMedia, removeMedia } from './db'
 
 export default function Vault({ onLock }) {
-  const [items, setItems] = useState([]);
+  const [tab, setTab] = useState('image')
+  const [items, setItems] = useState([])
+
+  const load = async () => {
+    const all = await getAllMedia()
+    setItems(all.map((m) => ({ ...m, url: URL.createObjectURL(m.blob) })))
+  }
 
   useEffect(() => {
-    get("vault").then((saved) => setItems(saved || []));
-  }, []);
+    load()
+    return () => items.forEach((i) => URL.revokeObjectURL(i.url))
+    // eslint-disable-next-line
+  }, [])
 
-  const save = async (list) => {
-    setItems(list);
-    await set("vault", list);
-  };
+  const onPick = async (e) => {
+    for (const f of e.target.files) await addMedia(f)
+    e.target.value = ''
+    load()
+  }
 
-  const addFiles = async (e) => {
-    const files = Array.from(e.target.files).map((f) => ({
-      id: crypto.randomUUID(),
-      type: f.type,
-      blob: f,
-    }));
-    await save([...items, ...files]);
-  };
+  const del = async (id) => { await removeMedia(id); load() }
 
-  const remove = (id) => save(items.filter((i) => i.id !== id));
+  const shown = items.filter((i) => i.type.startsWith(tab))
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white p-4">
-      <div className="flex justify-between items-center mb-4">
-        <h1 className="text-xl font-bold">Private Vault</h1>
-        <button onClick={onLock} className="bg-red-600 px-4 py-2 rounded-lg">
-          Lock
+    <div className="vault">
+      <div className="vhead">
+        <h2>🔒 Private Vault</h2>
+        <button className="lock" onClick={onLock}>Lock</button>
+      </div>
+
+      <div className="tabs">
+        <button className={tab === 'image' ? 'active' : ''} onClick={() => setTab('image')}>
+          Images ({items.filter((i) => i.type.startsWith('image')).length})
+        </button>
+        <button className={tab === 'video' ? 'active' : ''} onClick={() => setTab('video')}>
+          Videos ({items.filter((i) => i.type.startsWith('video')).length})
         </button>
       </div>
 
-      <input
-        type="file"
-        multiple
-        accept="image/*,video/*"
-        onChange={addFiles}
-        className="mb-4"
-      />
+      <label className="add">
+        + Add {tab === 'image' ? 'images' : 'videos'}
+        <input type="file" hidden multiple accept={tab === 'image' ? 'image/*' : 'video/*'} onChange={onPick} />
+      </label>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {items.map((item) => {
-          const url = URL.createObjectURL(item.blob);
-          return (
-            <div key={item.id} className="relative">
-              {item.type.startsWith("video") ? (
-                <video src={url} controls className="rounded-lg w-full" />
-              ) : (
-                <img src={url} className="rounded-lg w-full" />
-              )}
-              <button
-                onClick={() => remove(item.id)}
-                className="absolute top-1 right-1 bg-black/70 px-2 rounded"
-              >
-                ✕
-              </button>
-            </div>
-          );
-        })}
+      <div className="grid">
+        {shown.length === 0 && <p className="empty">Nothing here yet.</p>}
+        {shown.map((m) => (
+          <div className="card" key={m.id}>
+            {tab === 'image' ? <img src={m.url} alt="" /> : <video src={m.url} controls />}
+            <button className="del" onClick={() => del(m.id)}>✕</button>
+          </div>
+        ))}
       </div>
     </div>
-  );
+  )
 }

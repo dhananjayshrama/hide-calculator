@@ -1,15 +1,31 @@
-@import "tailwindcss";
-
-:root {
-  color-scheme: dark;
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: #000; color: #fff; min-height: 100vh;
+  display: flex; justify-content: center;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', system-ui, sans-serif;
 }
+#root { width: 100%; max-width: 420px; }
 
-html,
-body,
-#root {
-  min-height: 100%;
-  background: #000;
-  color: #fff;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI",
-    Roboto, Helvetica, Arial, sans-serif;
+.calc { padding: 16px 16px 12px; display: flex; flex-direction: column; justify-content: flex-end; min-height: 100vh; }
+.display { text-align: right; padding: 16px 8px; }
+.history { color: #8a8a8a; font-size: 20px; min-height: 28px; }
+.result { font-weight: 300; min-height: 96px; line-height: 1.1; word-break: break-all; display: flex; align-items: flex-end; justify-content: flex-end; }
+.result.gray { color: #8a8a8a; }
+.result.white { color: #fff; }
+
+.keys { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.keys button {
+  aspect-ratio: 1; border: 0; border-radius: 50%;
+  font-size: 32px; font-weight: 400;
+  background: #333333; color: #fff; cursor: pointer;
+  transition: filter .1s;
 }
+.keys button:active { filter: brightness(1.5); }
+.keys .fn { background: #a5a5a5; color: #000; }
+.keys .op { background: #ff9f0a; color: #fff; font-size: 40px; }
+.keys .op.active { background: #fff; color: #ff9f0a; }
+.keys .zero { grid-column: span 2; aspect-ratio: auto; border-radius: 999px; text-align: left; padding-left: 32px; }
+
+.credit { text-align: center; font-size: 11px; color: #555; margin-top: 14px; letter-spacing: .5px; }
+
+/* ---- vault styles below stay the same ---- */

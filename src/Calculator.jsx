@@ -1,215 +1,99 @@
-import { useEffect, useState } from "react";
+import { useState } from 'react'
 
-const STORAGE_KEY = "calc_secret_hash";
-const MIN_LENGTH = 4;
+const SECRET = '1234' // change this to your own secret code
 
-// Hash the code so the real number is never stored in plain text
-async function hashCode(code) {
-  const data = new TextEncoder().encode(code);
-  const buf = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(buf))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+function evaluate(expr) {
+  const raw = expr.match(/\d*\.?\d+|[+\-*/]/g)
+  if (!raw) return null
+  const t = []
+  for (let i = 0; i < raw.length; i++) {
+    const x = raw[i]
+    const prev = t[t.length - 1]
+    if (x === '-' && (t.length === 0 || typeof prev === 'string') && raw[i + 1] && !isNaN(raw[i + 1])) {
+      t.push(-parseFloat(raw[++i]))
+    } else if (!isNaN(x)) t.push(parseFloat(x))
+    else t.push(x)
+  }
+  if (typeof t[0] !== 'number') return null
+  const a = [t[0]]
+  for (let i = 1; i < t.length; i += 2) {
+    const op = t[i], n = t[i + 1]
+    if (typeof n !== 'number') return null
+    if (op === '*') a[a.length - 1] *= n
+    else if (op === '/') a[a.length - 1] /= n
+    else a.push(op, n)
+  }
+  let r = a[0]
+  for (let i = 1; i < a.length; i += 2) r = a[i] === '+' ? r + a[i + 1] : r - a[i + 1]
+  return Number.isFinite(r) ? +r.toFixed(10) : null
 }
 
-const pretty = (s) => s.replace(/\//g, "÷").replace(/\*/g, "×").replace(/-/g, "−");
-
-const rows = [
-  [
-    { label: "AC", kind: "fn" },
-    { label: "±", kind: "fn" },
-    { label: "%", kind: "fn" },
-    { label: "÷", kind: "op", value: "/" },
-  ],
-  [
-    { label: "7" }, { label: "8" }, { label: "9" },
-    { label: "×", kind: "op", value: "*" },
-  ],
-  [
-    { label: "4" }, { label: "5" }, { label: "6" },
-    { label: "−", kind: "op", value: "-" },
-  ],
-  [
-    { label: "1" }, { label: "2" }, { label: "3" },
-    { label: "+", kind: "op", value: "+" },
-  ],
-  [
-    { label: "0", wide: true },
-    { label: "." },
-    { label: "=", kind: "op" },
-  ],
-];
-
-const styles = {
-  num: "bg-[#333333] active:bg-[#737373] text-white",
-  fn: "bg-[#a5a5a5] active:bg-[#d9d9d9] text-black",
-  op: "bg-[#ff9f0a] active:bg-[#fcc78a] text-white",
-};
+// iPhone-style layout: 4 columns, "0" spans two columns
+const KEYS = ['C','⌫','%','/','7','8','9','*','4','5','6','-','1','2','3','+','0','.','=']
+const LABELS = { '/': '÷', '*': '×', '-': '−' }
+const pretty = (s) => s.replace(/\//g, '÷').replace(/\*/g, '×').replace(/-/g, '−')
 
 export default function Calculator({ onUnlock }) {
-  // mode: loading -> setup -> confirm -> normal
-  const [mode, setMode] = useState("loading");
-  const [expr, setExpr] = useState("");
-  const [history, setHistory] = useState("");
-  const [firstCode, setFirstCode] = useState("");
-  const [message, setMessage] = useState("");
-  const [fresh, setFresh] = useState(false); // true right after "=" shows a result
+  const [expr, setExpr] = useState('')
+  const [history, setHistory] = useState('')
+  const [done, setDone] = useState(false)
 
-  useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      setMode("normal");
-    } else {
-      setMode("setup");
-      setMessage(`Set your secret code (min ${MIN_LENGTH} digits), then press =`);
+  const isOp = (k) => '+-*/'.includes(k)
+  const hasOp = /\d[+\-*/]/.test(expr)
+  const preview = !done && hasOp ? evaluate(expr) : null
+
+  const press = (k) => {
+    if (k === 'C') { setExpr(''); setHistory(''); setDone(false); return }
+    if (k === '⌫') { if (!done) setExpr(expr.slice(0, -1)); return }
+    if (k === '%') {
+      const m = expr.match(/(\d*\.?\d+)$/)
+      if (m) setExpr(expr.slice(0, m.index) + String(+(parseFloat(m[1]) / 100).toFixed(10)))
+      return
     }
-  }, []);
-
-  const press = (v) => {
-    if (fresh && /[0-9.]/.test(v)) {
-      setExpr(v);
-    } else {
-      setExpr((d) => d + v);
+    if (k === '=') {
+      if (expr === SECRET) { setExpr(''); onUnlock(); return }
+      const r = evaluate(expr)
+      if (r !== null) { setHistory(expr); setExpr(String(r)); setDone(true) }
+      return
     }
-    setFresh(false);
-  };
-
-  const backspace = () => setExpr((d) => d.slice(0, -1));
-
-  const clear = () => {
-    setExpr("");
-    setHistory("");
-    setFresh(false);
-  };
-
-  const toggleSign = () => {
-    if (/^-?\d*\.?\d+$/.test(expr)) {
-      setExpr(expr.startsWith("-") ? expr.slice(1) : "-" + expr);
+    if (done) {
+      setHistory('')
+      setExpr(isOp(k) ? expr + k : k)
+      setDone(false)
+      return
     }
-  };
+    setExpr(expr + k)
+  }
 
-  const percent = () => {
-    if (/^-?\d*\.?\d+$/.test(expr)) setExpr(String(Number(expr) / 100));
-  };
+  const shown = done ? expr : preview !== null ? String(preview) : ''
+  const size = shown.length > 12 ? 34 : shown.length > 9 ? 44 : shown.length > 6 ? 60 : 80
 
-  const equals = async () => {
-    if (!expr) return;
-
-    // ---- first-time setup ----
-    if (mode === "setup") {
-      if (!/^\d+$/.test(expr) || expr.length < MIN_LENGTH) {
-        setMessage(`Code must be at least ${MIN_LENGTH} digits`);
-        setExpr("");
-        return;
-      }
-      setFirstCode(expr);
-      setExpr("");
-      setMode("confirm");
-      setMessage("Enter the same code again, then press =");
-      return;
-    }
-
-    if (mode === "confirm") {
-      if (expr === firstCode) {
-        localStorage.setItem(STORAGE_KEY, await hashCode(expr));
-        setExpr("");
-        setFirstCode("");
-        setMode("normal");
-        setMessage("");
-      } else {
-        setExpr("");
-        setFirstCode("");
-        setMode("setup");
-        setMessage("Codes did not match. Set your secret code again");
-      }
-      return;
-    }
-
-    // ---- normal mode: check secret first ----
-    if (/^\d+$/.test(expr) && expr.length >= MIN_LENGTH) {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if ((await hashCode(expr)) === saved) {
-        setExpr("");
-        onUnlock();
-        return;
-      }
-    }
-
-    // ---- otherwise act as a normal calculator ----
-    try {
-      if (!/^[0-9+\-*/.() ]+$/.test(expr)) return;
-      const result = Function(`return (${expr})`)();
-      if (!Number.isFinite(result)) throw new Error("bad");
-      setHistory(pretty(expr));
-      setExpr(String(Math.round(result * 1e10) / 1e10));
-      setFresh(true);
-    } catch {
-      setExpr("Error");
-      setFresh(true);
-    }
-  };
-
-  const handle = (b) => {
-    if (b.label === "AC") return clear();
-    if (b.label === "±") return toggleSign();
-    if (b.label === "%") return percent();
-    if (b.label === "=") return equals();
-    if (expr === "Error") setExpr("");
-    press(b.value ?? b.label);
-  };
-
-  if (mode === "loading") return <div className="min-h-screen bg-black" />;
-
-  const shown = expr ? pretty(expr) : "0";
-  const size =
-    shown.length > 12 ? "text-4xl" : shown.length > 8 ? "text-5xl" : "text-7xl";
+  const cls = (k) => {
+    if (k === '=') return 'op'
+    if (isOp(k)) return 'op' + (!done && expr.endsWith(k) ? ' active' : '')
+    if (['C', '⌫', '%'].includes(k)) return 'fn'
+    if (k === '0') return 'zero'
+    return ''
+  }
 
   return (
-    <div className="min-h-screen bg-black flex items-end sm:items-center justify-center p-4 select-none">
-      <div className="w-full max-w-sm">
-        {/* display */}
-        <div className="px-3 pb-3 text-right text-white">
-          <div className="h-6 text-sm text-zinc-500 truncate">
-            {message || history}
-          </div>
-          <div className="flex items-center justify-between gap-3 mt-2">
-            <button
-              onClick={backspace}
-              aria-label="Delete last digit"
-              className="text-zinc-400 active:text-white p-2"
-            >
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 5H9l-6 7 6 7h12a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1z" />
-                <path d="M17 9l-5 6M12 9l5 6" />
-              </svg>
-            </button>
-            <div className={`${size} font-light tabular-nums truncate`}>
-              {shown}
-            </div>
-          </div>
-        </div>
-
-        {/* keypad */}
-        <div className="grid grid-cols-4 gap-3">
-          {rows.flat().map((b) => {
-            const kind = b.kind || "num";
-            const label = b.label === "AC" && expr ? "C" : b.label;
-            return (
-              <button
-                key={b.label}
-                onClick={() => handle(b)}
-                className={`${styles[kind]} ${
-                  b.wide
-                    ? "col-span-2 justify-start pl-8 py-5"
-                    : "aspect-square justify-center"
-                } rounded-full flex items-center text-3xl transition-colors`}
-              >
-                {label}
-              </button>
-            );
-          })}
+    <div className="calc">
+      <div className="display">
+        <div className="history">{done ? pretty(history) + ' =' : pretty(expr) || '\u00A0'}</div>
+        <div className={'result ' + (done ? 'white' : 'gray')} style={{ fontSize: size }}>
+          {shown || '\u00A0'}
         </div>
       </div>
+
+      <div className="keys">
+        {KEYS.map((k) => (
+          <button key={k} className={cls(k)} onClick={() => press(k)}>
+            {k === 'C' ? (expr ? 'C' : 'AC') : LABELS[k] || k}
+          </button>
+        ))}
+      </div>
+
+      <div className="credit">Made by Dhananjay</div>
     </div>
-  );
+  )
 }
