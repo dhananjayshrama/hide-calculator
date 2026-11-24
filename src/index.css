@@ -29,3 +29,12 @@ body {
 .credit { text-align: center; font-size: 11px; color: #555; margin-top: 14px; letter-spacing: .5px; }
 
 /* ---- vault styles below stay the same ---- */
+.about { display: flex; flex-direction: column; gap: 16px; padding: 8px 0; }
+.about section { background: #1c1c1e; border-radius: 14px; padding: 14px 16px; }
+.about h3, .about h4 { margin: 0 0 6px; }
+.about p, .about li { font-size: 14px; line-height: 1.5; margin: 4px 0; }
+.about a { color: #ff9f0a; text-decoration: none; margin-right: 10px; }
+.about .muted { opacity: 0.6; }
+.about ul { padding-left: 18px; margin: 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.chips span { background: #333; border-radius: 999px; padding: 4px 10px; font-size: 12px; }
