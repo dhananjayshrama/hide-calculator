@@ -1,42 +1,54 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { Capacitor } from '@capacitor/core'
+import { Filesystem, Directory } from '@capacitor/filesystem'
 import { addMedia, getAllMedia, removeMedia } from './db'
 
-// ✏️ Edit your own details here
-const ABOUT = {
-  name: 'Dhananjay',
-  tagline: 'Web developer • Solapur, Maharashtra',
-  aboutMe:
-    'Write a short intro about yourself here: who you are, what you enjoy building, and your interests.',
-  professional: {
-    role: 'Frontend Developer',
-    skills: ['React', 'JavaScript', 'HTML/CSS', 'IndexedDB'],
-    experience: 'Add your experience, projects or education here.',
-    email: 'your@email.com',
-    links: [
-      { label: 'GitHub', url: 'https://github.com/your-username' },
-      { label: 'LinkedIn', url: 'https://linkedin.com/in/your-username' },
-    ],
-  },
-  howDeveloped: [
-    'Built with React (hooks) and plain CSS.',
-    'The calculator uses a custom expression evaluator with operator precedence.',
-    'Typing the secret code and pressing "=" unlocks the vault.',
-    'Photos and videos are stored as blobs in the browser\'s IndexedDB, so they stay on your device.',
-    'No backend and no uploads. Everything is local.',
-  ],
+// ✏️ KEEP YOUR ABOUT = { ... } BLOCK HERE, unchanged
+
+const toBase64 = (blob) =>
+  new Promise((res, rej) => {
+    const r = new FileReader()
+    r.onload = () => res(r.result.split(',')[1])
+    r.onerror = rej
+    r.readAsDataURL(blob)
+  })
+
+// Save a file back to the phone (or download it in a browser)
+async function saveToDevice(item) {
+  if (Capacitor.isNativePlatform()) {
+    await Filesystem.writeFile({
+      path: `Unhidden/${Date.now()}_${item.name}`,
+      data: await toBase64(item.blob),
+      directory: Directory.Documents,
+      recursive: true,
+    })
+  } else {
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(item.blob)
+    a.download = item.name
+    a.click()
+  }
 }
 
 export default function Vault({ onLock }) {
   const [tab, setTab] = useState('image')
   const [items, setItems] = useState([])
+  const [selectMode, setSelectMode] = useState(false)
+  const [selected, setSelected] = useState(new Set())
+  const [busy, setBusy] = useState(false)
+  const urlsRef = useRef([])
 
   const load = async () => {
+    urlsRef.current.forEach(URL.revokeObjectURL)
     const all = await getAllMedia()
-    setItems(all.map((m) => ({ ...m, url: URL.createObjectURL(m.blob) })))
+    const withUrls = all.map((m) => ({ ...m, url: URL.createObjectURL(m.blob) }))
+    urlsRef.current = withUrls.map((m) => m.url)
+    setItems(withUrls)
   }
 
   useEffect(() => {
     load()
+    return () => urlsRef.current.forEach(URL.revokeObjectURL)
     // eslint-disable-next-line
   }, [])
 
@@ -46,10 +58,59 @@ export default function Vault({ onLock }) {
     load()
   }
 
-  const del = async (id) => { await removeMedia(id); load() }
-
   const isMedia = tab === 'image' || tab === 'video'
   const shown = items.filter((i) => i.type.startsWith(tab))
+
+  const changeTab = (t) => {
+    setTab(t)
+    setSelectMode(false)
+    setSelected(new Set())
+  }
+
+  const toggle = (id) => {
+    const next = new Set(selected)
+    next.has(id) ? next.delete(id) : next.add(id)
+    setSelected(next)
+  }
+
+  const selectAll = () =>
+    setSelected(
+      selected.size === shown.length ? new Set() : new Set(shown.map((i) => i.id))
+    )
+
+  const exitSelect = () => {
+    setSelectMode(false)
+    setSelected(new Set())
+  }
+
+  const chosen = () => shown.filter((i) => selected.has(i.id))
+
+  const unhide = async () => {
+    const list = chosen()
+    if (!list.length) return
+    setBusy(true)
+    try {
+      for (const item of list) await saveToDevice(item)
+      for (const item of list) await removeMedia(item.id)
+      alert(`${list.length} file(s) unhidden. Saved in Documents/Unhidden.`)
+    } catch (err) {
+      alert('Unhide failed: ' + (err?.message || err) + '\nNothing was deleted from the vault.')
+    }
+    setBusy(false)
+    exitSelect()
+    load()
+  }
+
+  const del = async () => {
+    const list = chosen()
+    if (!list.length) return
+    if (!confirm(`Permanently delete ${list.length} file(s)? This cannot be undone.`)) return
+    setBusy(true)
+    for (const item of list) await removeMedia(item.id)
+    setBusy(false)
+    exitSelect()
+    load()
+  }
 
   return (
     <div className="vault">
@@ -59,69 +120,69 @@ export default function Vault({ onLock }) {
       </div>
 
       <div className="tabs">
-        <button className={tab === 'image' ? 'active' : ''} onClick={() => setTab('image')}>
+        <button className={tab === 'image' ? 'active' : ''} onClick={() => changeTab('image')}>
           Images ({items.filter((i) => i.type.startsWith('image')).length})
         </button>
-        <button className={tab === 'video' ? 'active' : ''} onClick={() => setTab('video')}>
+        <button className={tab === 'video' ? 'active' : ''} onClick={() => changeTab('video')}>
           Videos ({items.filter((i) => i.type.startsWith('video')).length})
         </button>
-        <button className={tab === 'about' ? 'active' : ''} onClick={() => setTab('about')}>
+        <button className={tab === 'about' ? 'active' : ''} onClick={() => changeTab('about')}>
           About
         </button>
       </div>
 
       {isMedia && (
         <>
-          <label className="add">
-            + Add {tab === 'image' ? 'images' : 'videos'}
-            <input type="file" hidden multiple accept={tab === 'image' ? 'image/*' : 'video/*'} onChange={onPick} />
-          </label>
+          <div className="toolbar">
+            <label className="add">
+              + Hide {tab === 'image' ? 'images' : 'videos'}
+              <input type="file" hidden multiple accept={tab === 'image' ? 'image/*' : 'video/*'} onChange={onPick} />
+            </label>
+            {shown.length > 0 && (
+              <button className="selbtn" onClick={() => (selectMode ? exitSelect() : setSelectMode(true))}>
+                {selectMode ? 'Cancel' : 'Select'}
+              </button>
+            )}
+          </div>
+
+          {selectMode && (
+            <button className="selall" onClick={selectAll}>
+              {selected.size === shown.length ? 'Deselect all' : 'Select all'}
+            </button>
+          )}
 
           <div className="grid">
             {shown.length === 0 && <p className="empty">Nothing here yet.</p>}
             {shown.map((m) => (
-              <div className="card" key={m.id}>
-                {tab === 'image' ? <img src={m.url} alt="" /> : <video src={m.url} controls />}
-                <button className="del" onClick={() => del(m.id)}>✕</button>
+              <div
+                className={'card' + (selected.has(m.id) ? ' sel' : '')}
+                key={m.id}
+              >
+                {tab === 'image'
+                  ? <img src={m.url} alt="" />
+                  : <video src={m.url} controls={!selectMode} muted />}
+                {selectMode && (
+                  <div className="pick" onClick={() => toggle(m.id)}>
+                    <span className="check">{selected.has(m.id) ? '✔' : ''}</span>
+                  </div>
+                )}
               </div>
             ))}
           </div>
+
+          {selectMode && (
+            <div className="selbar">
+              <span>{selected.size} selected</span>
+              <button disabled={busy || !selected.size} onClick={unhide}>Unhide</button>
+              <button className="danger" disabled={busy || !selected.size} onClick={del}>Delete</button>
+            </div>
+          )}
         </>
       )}
 
       {tab === 'about' && (
         <div className="about">
-          <section>
-            <h3>{ABOUT.name}</h3>
-            <p className="muted">{ABOUT.tagline}</p>
-          </section>
-
-          <section>
-            <h4>About me</h4>
-            <p>{ABOUT.aboutMe}</p>
-          </section>
-
-          <section>
-            <h4>Professional</h4>
-            <p><b>{ABOUT.professional.role}</b></p>
-            <div className="chips">
-              {ABOUT.professional.skills.map((s) => <span key={s}>{s}</span>)}
-            </div>
-            <p>{ABOUT.professional.experience}</p>
-            <p>📧 <a href={`mailto:${ABOUT.professional.email}`}>{ABOUT.professional.email}</a></p>
-            <p>
-              {ABOUT.professional.links.map((l) => (
-                <a key={l.label} href={l.url} target="_blank" rel="noreferrer">{l.label} </a>
-              ))}
-            </p>
-          </section>
-
-          <section>
-            <h4>How this app was developed</h4>
-            <ul>
-              {ABOUT.howDeveloped.map((t, i) => <li key={i}>{t}</li>)}
-            </ul>
-          </section>
+          {/* keep your existing About JSX here, unchanged */}
         </div>
       )}
     </div>
